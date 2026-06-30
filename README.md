@@ -2,6 +2,34 @@
 
 A real-time AI moderator assistant for technology conferences. A human operator controls an AI assistant that listens to speech, transcribes it via Azure Speech-to-Text, and generates summaries, follow-up questions, and moderator responses on demand.
 
+---
+
+## ⚡ Standalone single-file build — `index.html` (no backend)
+
+`index.html` at the repo root is a **self-contained, static rebuild** of this app that combines the operator dashboard with a **working Azure real-time video avatar** in one file — no Python, no FastAPI, no WebSocket server.
+
+**Why this exists:** the original FastAPI build never rendered the avatar because Azure's talking avatar is a **WebRTC** stream that must be negotiated in the *browser*, while the backend only had an `/api/avatar` placeholder. The standalone build uses the proven browser WebRTC path (relay token → `RTCPeerConnection` with `recvonly` video+audio transceivers → `AvatarSynthesizer.startAvatarAsync` → shared `MediaStream` bound to `<video>` + `<audio>`). The Azure Speech JS SDK also does Speech-to-Text in the browser, so the server is no longer needed.
+
+**What it includes**
+- **Live transcript** — browser `SpeechRecognizer` (continuous recognition, partial + final).
+- **Reasoner** — `Mock` (offline keyword/extractive logic) **and** an `LLM` toggle calling any OpenAI-compatible endpoint (Groq / OpenAI / OpenRouter / Azure OpenAI — base URL + model + key configurable).
+- **Personas** — 🔥 RAZOR (Provocateur), 😂 GLITCH (Comedian), 🧠 CORTEX (Know-It-All); each maps to a voice + voice-style + system prompt.
+- **Avatar stage** — character/style/voice/style-degree/rate controls, subtitle overlay, fullscreen toggle, speaking glow.
+- **Speaker briefing** — paste or load a `.txt`/`.md` file as reasoner context.
+- **Settings panel** — Azure key/region/language + reasoner config, saved to `localStorage` (no keys baked into the file).
+- **Hisense-branded** dark broadcast-operator UI (Hisense green accents).
+
+**Run it**
+1. Open ⚙ **Settings**, paste your **Azure Speech key** (must be **Standard S0** tier — required for the avatar) and region.
+2. Click **▶ Start Avatar**, then **▶ Start Listening**.
+3. Generate **Summarize / Questions / Response**, review, and **🗣 Send to Avatar**.
+
+> **Microphone note:** browsers only grant mic access in a *secure context*. Serve the file over `localhost` (e.g. `python -m http.server`) or `https` — opening via `file://` may block the microphone (the avatar/TTS still works either way).
+
+The original FastAPI backend below remains intact and unchanged.
+
+---
+
 ## Architecture
 
 ```
