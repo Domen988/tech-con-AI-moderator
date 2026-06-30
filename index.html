@@ -497,12 +497,22 @@ function boot(){
     pg.appendChild(d);
   });
   // avatar dropdowns
-  const c=$("avChar"); Object.keys(AVATAR_OPTIONS).forEach(ch=>c.add(new Option(ch,ch))); c.value="lisa";
+  const c=$("avChar"); Object.keys(AVATAR_OPTIONS).forEach(ch=>c.add(new Option(ch,ch))); c.value="celine";
   const v=$("voice"); VOICES.forEach(x=>v.add(new Option(x.replace("en-US-","").replace("Neural",""),x)));
   const vs=$("voiceStyle"); VOICE_STYLES.forEach(x=>vs.add(new Option(x||"default",x)));
   syncStyles();
   setPersona(activePersona);
+  applyDefaultAvatarVoice();   // default avatar/voice preset (set after setPersona so it holds on load)
   if(!cfg.speechKey){ log("system","No Azure Speech key set — open ⚙ Settings to add one."); }
+}
+
+// Default avatar & voice preset shown on first load: celine · Ava · cheerful · 2.0 · Normal.
+function applyDefaultAvatarVoice(){
+  $("avChar").value="celine"; syncStyles();   // celine → style N/A
+  $("voice").value="en-US-AvaMultilingualNeural";
+  $("voiceStyle").value="cheerful";
+  $("styleDegree").value="2";
+  $("rate").value="0%";
 }
 
 function syncStyles(){
