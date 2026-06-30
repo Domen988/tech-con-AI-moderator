@@ -19,6 +19,7 @@ A real-time AI moderator assistant for technology conferences. A human operator 
 - **Avatar background** — set a solid colour, or a **public HTTPS image URL at 1920×1080** that Azure composites behind the avatar server-side (so the image must be web-hosted, not a local file). Applied on Start Avatar.
 - **Speaker briefing** — paste or load a `.pptx`, `.docx`, `.txt` or `.md` file as reasoner context. `.pptx`/`.docx` are unzipped and parsed in the browser via JSZip (no server, no upload).
 - **Transcript compression** — for long talks, **🗜 Compress** rolls older utterances into a running summary (mock-extractive or LLM), shown as a banner and fed back to the reasoner as context.
+- **Paste transcript** — **📋 Paste** loads any transcript (e.g. YouTube: *⋯ More → Show transcript → copy*) into the moderator as if spoken; leading timestamps and `[Music]`/`[Applause]` cues are stripped automatically. Good for rehearsing personas against real talks. (YouTube can't be auto-fetched from a static page — browsers block cross-origin scraping — so paste is the supported path.)
 - **Settings panel** — Azure key/region/language + reasoner config, saved to `localStorage` (no keys baked into the file).
 - **Hisense-branded** dark broadcast-operator UI (Hisense green accents).
 

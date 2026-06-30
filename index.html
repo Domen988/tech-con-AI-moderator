@@ -280,6 +280,7 @@ details.adv[open] summary::before{content:"▾ "}
         <div id="transcript"><div class="empty" id="transcriptEmpty">Waiting for speech… press Start Listening.</div></div>
         <div class="toolbar" style="margin-top:13px">
           <button class="btn primary" id="btnListen" onclick="toggleListening()">▶ Start Listening</button>
+          <button class="btn ghost sm" onclick="openPaste()" title="Paste a transcript (e.g. from a YouTube video)">📋 Paste</button>
           <button class="btn ghost sm" onclick="compressTranscript()" title="Roll older utterances into a running summary for long talks">🗜 Compress</button>
           <button class="btn ghost danger sm" onclick="clearSession()" title="Clear transcript & log">🗑 New Talk</button>
         </div>
@@ -388,6 +389,25 @@ details.adv[open] summary::before{content:"▾ "}
   </div>
 </div>
 
+<!-- ══ PASTE TRANSCRIPT MODAL ══════════════════════════════ -->
+<div class="modal-bg" id="pasteModal">
+  <div class="modal">
+    <div class="modal-head"><h3>📋 Paste transcript</h3><button class="icon-btn" onclick="closePaste()">✕</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0">Paste a talk transcript and load it into the moderator as if it had been spoken. Timestamps and cues like <code>[Music]</code> are stripped automatically.</p>
+      <p class="hint" style="margin-top:0"><b>From YouTube:</b> under the video click <b>⋯ More → Show transcript</b>, then select all and copy — paste it here.</p>
+      <textarea id="pasteBox" rows="11" placeholder="0:00 welcome everyone&#10;0:04 today we're going to talk about on-device inference&#10;…"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:var(--text-2);cursor:pointer">
+        <input type="checkbox" id="pasteReplace" style="width:auto" checked> Replace current transcript (uncheck to append)
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closePaste()">Cancel</button>
+      <button class="btn primary" onclick="loadPastedTranscript()">Load into transcript</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ SETTINGS MODAL ══════════════════════════════════════ -->
 <div class="modal-bg" id="settingsModal">
   <div class="modal">
@@ -474,15 +494,23 @@ const VOICE_STYLES = ["","chat","cheerful","friendly","customerservice","newscas
 const PERSONAS = {
   host:{ name:"HOST", role:"The Host", emo:"🎤",
     voice:"en-US-AndrewMultilingualNeural", voiceStyle:"friendly",
-    system:"You are HOST, the warm and polished AI co-host of a technology conference. Your job is to keep the session flowing, welcome the audience, highlight the speaker's strongest points, and bridge smoothly between ideas. You are confident, gracious and engaging — never sarcastic or confrontational. Speak in clean, broadcast-ready sentences (max 3 for a spoken response)." },
+    system:"You are HOST, the on-stage co-host of the Hisense Europe Tech Conference. You sound like a sharp, warm broadcast host — plain-spoken, quick, present. You react to the exact thing the speaker just said, name the concrete detail that landed, and hand momentum back to them. You make the speaker look good without flattering them; any praise points at a specific moment, never a vague compliment. Your signature move is a crisp one-line bridge that connects what was just said to why the room should lean in." },
   analyst:{ name:"PROBE", role:"The Analyst", emo:"🔬",
     voice:"en-US-SteffanMultilingualNeural", voiceStyle:"assistant",
-    system:"You are PROBE, an incisive AI analyst co-moderating a technology conference. You add substance: you clarify technical claims, surface trade-offs, and ask the precise question that deepens the audience's understanding. You are respectful and genuinely curious, never condescending. Concise and rigorous (max 3 sentences for a spoken response)." },
+    system:"You are PROBE, the technical analyst at the Hisense Europe Tech Conference. You think like a skeptical senior engineer who respects the speaker. You find the single load-bearing claim, name the specific trade-off hiding under it — latency, cost, data, power, failure mode, edge case — and ask for the number or the mechanism. You never hand-wave and you never grandstand; one precise cut beats five vague observations. You quote the speaker's own terms back at them." },
   advocate:{ name:"SPARK", role:"Audience Voice", emo:"💡",
     voice:"en-US-AvaMultilingualNeural", voiceStyle:"cheerful",
-    system:"You are SPARK, the AI audience advocate at a technology conference. You channel the room's curiosity — translating dense material into 'what does this mean for me?' and keeping the energy high with accessible, enthusiastic framing. You are friendly and inclusive, never flippant or dumbed-down. Concise and lively (max 3 sentences for a spoken response)." }
+    system:"You are SPARK, the audience's voice at the Hisense Europe Tech Conference. You take whatever was just said and ground it in one vivid, concrete scene from real life — the living room, the commute, the factory floor — so a non-expert instantly gets why it matters. You're witty and warm, never a cheerleader: your energy is always tied to a specific payoff, not generic hype. You ask the question the person in row 12 is actually thinking." }
 };
 let activePersona = "host";
+
+/* Shared anti-generic contract appended to every persona's system prompt. */
+const STYLE_RULES = "Hard style rules:\n- " + [
+  "Ground every sentence in specifics from the transcript: cite the actual claims, names, numbers, products or terms the speaker used. If the transcript is thin, work with the little that's there — never invent facts.",
+  "Talk like a real person on a mic, not a press release. Short, varied sentences; contractions; no list-y hedging.",
+  "Banned words/phrases (and anything like them): 'fascinating', 'great question', 'thank you for that', 'it's important to note', 'in today's world', 'fast-paced', 'game-changer', 'revolutionary', 'unlock', 'leverage', 'at the end of the day', 'dive deeper', 'paradigm', 'synergy', 'cutting-edge', 'seamless'.",
+  "Never open with a greeting, throat-clearing, or filler — open on a concrete word. Don't restate the task or narrate yourself ('As HOST,'). Output only the words to be spoken/shown."
+].join("\n- ");
 
 /* ── State ────────────────────────────────────────────────── */
 let recognizer=null, listening=false;
@@ -788,23 +816,24 @@ function mockQuestions(text){
 async function llmReason(action,text){
   const p=PERSONAS[activePersona];
   const tasks={
-    summarize:"Summarize the key points of this conference-talk segment in 2-3 tight sentences for the moderator.",
-    questions:"Suggest exactly three insightful follow-up questions the moderator could ask the speaker. Number them.",
-    response:"Give a short spoken moderator response (max 3 sentences) reacting to the talk, fully in character."
+    summarize:"Summarize what THIS speaker actually argued: the specific claim, plus the concrete evidence, example, or number they used to back it. 2-3 sentences. No preamble, no 'the speaker discusses'.",
+    questions:"Write exactly three follow-up questions. Each must be anchored to a specific thing the speaker said — name or quote the detail inside the question. They must be pointed and impossible to ask of a different talk. One per line, numbered 1-3, nothing else.",
+    response:"Say ONE spoken line (max 3 sentences) reacting to the single most interesting concrete point the speaker just made — add a specific angle, a challenge, or a vivid reframe in your own voice. It will be read aloud by the avatar, so make it sound spoken."
   };
-  const brief=briefingText()?`\n\nSpeaker briefing/context:\n${briefingText()}`:"";
+  const temps={summarize:0.5, questions:0.8, response:0.95};
+  const brief=briefingText()?`\n\nSpeaker briefing/context (use it to be more specific):\n${briefingText()}`:"";
   return llmCall([
-    {role:"system",content:p.system},
-    {role:"user",content:`${tasks[action]}\n\nRecent transcript:\n"""${text||"(no transcript captured yet)"}"""${brief}`}
-  ]);
+    {role:"system",content:p.system+"\n\n"+STYLE_RULES},
+    {role:"user",content:`${tasks[action]}\n\nTranscript:\n"""${text||"(no transcript captured yet)"}"""${brief}`}
+  ],{temperature:temps[action]});
 }
 
 /* shared OpenAI-compatible chat-completions call */
-async function llmCall(messages,{temperature=0.8,maxTokens=400}={}){
+async function llmCall(messages,{temperature=0.8,maxTokens=400,presencePenalty=0.4,frequencyPenalty=0.5}={}){
   const url=cfg.llmUrl.replace(/\/+$/,"")+"/chat/completions";
   const headers={"Content-Type":"application/json"};
   if(cfg.llmAuth==="apikey") headers["api-key"]=cfg.llmKey; else headers["Authorization"]="Bearer "+cfg.llmKey;
-  const resp=await fetch(url,{method:"POST",headers,body:JSON.stringify({model:cfg.llmModel,messages,temperature,max_tokens:maxTokens})});
+  const resp=await fetch(url,{method:"POST",headers,body:JSON.stringify({model:cfg.llmModel,messages,temperature,max_tokens:maxTokens,presence_penalty:presencePenalty,frequency_penalty:frequencyPenalty})});
   if(!resp.ok){ throw new Error("LLM HTTP "+resp.status+" — "+(await resp.text()).slice(0,160)); }
   const data=await resp.json();
   return (data.choices?.[0]?.message?.content||"(empty LLM response)").trim();
@@ -988,6 +1017,44 @@ async function loadBriefingFile(input){
   }finally{ input.value=""; }
 }
 
+/* ── Paste transcript (e.g. from YouTube) ─────────────────── */
+function openPaste(){ $("pasteModal").classList.add("open"); setTimeout(()=>$("pasteBox").focus(),50); }
+function closePaste(){ $("pasteModal").classList.remove("open"); }
+
+// Clean a pasted transcript into readable utterances: strip timestamps & bracketed cues, then chunk.
+function parseTranscript(text){
+  const cleaned=[];
+  for(let raw of text.replace(/\r/g,"").split("\n")){
+    let s=raw.trim();
+    if(!s) continue;
+    s=s.replace(/^[\[\(]?\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?[\]\)]?\s*/,""); // leading 0:00 / 00:00:00
+    if(/^\[[^\]]*\]$/.test(s)) continue;   // drop standalone [Music], [Applause]
+    if(s) cleaned.push(s);
+  }
+  const joined=cleaned.join(" ").replace(/\s+/g," ").trim();
+  if(!joined) return [];
+  let parts=joined.match(/[^.!?]+[.!?]+/g);                  // sentence split when punctuated
+  if(!parts || parts.length<2){                              // auto-captions often have no punctuation
+    const w=joined.split(" "); parts=[];
+    for(let i=0;i<w.length;i+=28) parts.push(w.slice(i,i+28).join(" "));
+  }
+  const out=[]; let buf="";
+  for(const p of parts){ const t=p.trim(); if(!t) continue; buf=buf?buf+" "+t:t; if(buf.length>=200){ out.push(buf); buf=""; } }
+  if(buf) out.push(buf);
+  return out;
+}
+
+function loadPastedTranscript(){
+  const raw=$("pasteBox").value;
+  const utts=parseTranscript(raw);
+  if(!utts.length){ log("error","Nothing to load — paste some transcript text first."); return; }
+  if($("pasteReplace").checked){ utterances=[]; rollingSummary=""; renderTranscript(); }
+  utts.forEach(addUtterance);
+  $("pasteBox").value="";
+  closePaste();
+  log("system",`Loaded pasted transcript — ${utts.length} segment${utts.length!==1?"s":""}, ${raw.trim().length} chars.`);
+}
+
 // Extract text from Office Open XML containers (.docx/.pptx are ZIP archives of XML).
 function parseXml(xml){
   const doc=new DOMParser().parseFromString(xml,"application/xml");
@@ -1023,7 +1090,7 @@ async function extractPptx(file){
   return out.join("\n");
 }
 
-document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeSettings(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeSettings(); closePaste(); } });
 boot();
 </script>
 </body>
