@@ -373,7 +373,14 @@ details.adv[open] summary::before{content:"▾ "}
           </div>
           <div class="label">Speech rate</div>
           <select id="rate"><option value="-15%">Slow</option><option value="0%" selected>Normal</option><option value="15%">Fast</option><option value="30%">Very fast</option></select>
-          <p class="hint" style="margin-top:8px">Changing the character requires Stop → Start Avatar.</p>
+
+          <div class="label">Background image URL — 1920×1080</div>
+          <input id="bgImage" type="url" placeholder="https://…/backdrop-1920x1080.jpg (public link, optional)">
+          <div class="field-grid" style="align-items:end">
+            <div><div class="label">Background colour</div><input id="bgColor" type="color" value="#0A0E0C" style="height:38px;padding:4px;cursor:pointer"></div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);cursor:pointer;padding-bottom:10px"><input type="checkbox" id="bgUseColor" style="width:auto"> Use solid colour</label>
+          </div>
+          <p class="hint" style="margin-top:8px">Background is composited by Azure server-side, so an image needs a <b>public HTTPS URL</b> at <b>1920×1080</b>. If the URL is empty and "Use solid colour" is on, a flat colour is used; otherwise the avatar's default backdrop. Changing the character or background requires Stop → Start Avatar.</p>
         </details>
 
       </div>
@@ -824,6 +831,7 @@ async function startAvatar(){
     const sc=SpeechSDK.SpeechConfig.fromSubscription(cfg.speechKey,cfg.region);
     sc.speechSynthesisVoiceName=voice;
     const avCfg = style ? new SpeechSDK.AvatarConfig(character,style) : new SpeechSDK.AvatarConfig(character);
+    applyBackground(avCfg);
     avatarSynth=new SpeechSDK.AvatarSynthesizer(sc,avCfg);
     remoteStream=new MediaStream();
 
@@ -873,6 +881,20 @@ function speakCurrent(){
     },
     err=>{ setStageSpeaking(false); log("error","Speak error: "+err+" (try Voice style → default)"); }
   );
+}
+
+// Avatar background: image URL wins; else optional solid colour; else Azure default.
+function applyBackground(avCfg){
+  const url=$("bgImage").value.trim();
+  if(url){
+    try{ avCfg.backgroundImage=new URL(url); log("system","Avatar background image: "+url); return; }
+    catch(e){ log("error","Invalid background image URL — using default backdrop."); }
+  }
+  if($("bgUseColor").checked){
+    const hex=$("bgColor").value.toUpperCase();           // "#RRGGBB"
+    avCfg.backgroundColor=/^#[0-9A-F]{6}$/.test(hex) ? hex+"FF" : hex;   // Azure wants #RRGGBBAA
+    log("system","Avatar background colour: "+hex);
+  }
 }
 
 function buildSsml(text){
