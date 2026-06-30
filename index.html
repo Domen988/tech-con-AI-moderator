@@ -177,12 +177,6 @@ body{
 .stage-ph{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--text-dim);gap:6px;pointer-events:none}
 .stage-ph .big{font-size:46px;filter:grayscale(.2);opacity:.8}
 .stage-ph .lbl{font-size:12px;letter-spacing:.1em;text-transform:uppercase}
-#subtitle{
-  position:absolute;left:5%;right:5%;bottom:18px;display:none;
-  background:rgba(0,0,0,.74);color:#fff;padding:10px 16px;border-radius:9px;
-  font-size:clamp(13px,1.5vw,19px);line-height:1.35;text-align:center;
-  border:1px solid rgba(0,160,74,.4);
-}
 .stage-bar{display:flex;align-items:center;justify-content:space-between;margin-top:11px;gap:10px}
 .stage-state{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:8px}
 
@@ -337,7 +331,6 @@ details.adv[open] summary::before{content:"▾ "}
           <div class="stage-ph" id="stagePh">
             <div class="big">🟢</div><div class="lbl">Avatar offline</div>
           </div>
-          <div id="subtitle"></div>
         </div>
         <audio id="avatarAudio" autoplay playsinline style="display:none"></audio>
 
@@ -795,7 +788,6 @@ function speakCurrent(){
   if(!text){ log("error","Nothing to speak — generate a response first."); return; }
   if(!avatarSynth||!avatarReady){ log("error","Start the avatar first (▶ Start Avatar)."); return; }
   unlockAudio();
-  showSubtitle(text);
   const ssml=buildSsml(text);
   setStageSpeaking(true);
   log("system","Sending text to avatar…");
@@ -804,9 +796,8 @@ function speakCurrent(){
       setStageSpeaking(false);
       if(res.reason===SpeechSDK.ResultReason.SynthesizingAudioCompleted) log("system","Avatar finished speaking.");
       else { log("error","Speech ended: "+res.reason+(res.errorDetails?(" — "+res.errorDetails):"")); }
-      setTimeout(hideSubtitle,800);
     },
-    err=>{ setStageSpeaking(false); log("error","Speak error: "+err+" (try Voice style → default)"); hideSubtitle(); }
+    err=>{ setStageSpeaking(false); log("error","Speak error: "+err+" (try Voice style → default)"); }
   );
 }
 
@@ -823,12 +814,10 @@ function stopAvatar(){
   try{ peer?.close(); }catch(e){}
   avatarSynth=null; peer=null; remoteStream=null; avatarReady=false;
   $("avatarVideo").srcObject=null; $("stagePh").style.display="grid";
-  hideSubtitle(); setStageSpeaking(false); setAv("","Disconnected");
+  setStageSpeaking(false); setAv("","Disconnected");
   log("system","Avatar stopped.");
 }
 
-function showSubtitle(t){ const s=$("subtitle"); s.textContent=t; s.style.display="block"; }
-function hideSubtitle(){ $("subtitle").style.display="none"; }
 function setStageSpeaking(on){ $("stageScreen").classList.toggle("speaking",on); }
 function toggleFullscreen(){ const el=$("stageScreen"); if(!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.(); }
 
