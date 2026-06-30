@@ -447,6 +447,10 @@ const cfg = Object.assign({
 
 function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(cfg)); }
 
+/* Default avatar backdrop — Hisense Europe Tech Conference (1920×1080), hosted in this public repo
+   so Azure can fetch it server-side. Operators can override it in Avatar & voice settings. */
+const DEFAULT_BG_URL = "https://raw.githubusercontent.com/Domen988/tech-con-AI-moderator/main/assets/tech-con-background-1920x1080.png";
+
 /* ── Avatar / voice option tables (from working tester) ───── */
 const AVATAR_OPTIONS = {
   lisa:["casual-sitting","graceful-sitting","graceful-standing","technical-sitting","technical-standing"],
@@ -520,6 +524,7 @@ function applyDefaultAvatarVoice(){
   $("voiceStyle").value="cheerful";
   $("styleDegree").value="2";
   $("rate").value="0%";
+  $("bgImage").value=DEFAULT_BG_URL;   // default conference backdrop
 }
 
 function syncStyles(){
