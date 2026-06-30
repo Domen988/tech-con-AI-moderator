@@ -15,7 +15,8 @@ A real-time AI moderator assistant for technology conferences. A human operator 
 - **Reasoner** — `Mock` (offline keyword/extractive logic) **and** an `LLM` toggle calling any OpenAI-compatible endpoint (Groq / OpenAI / OpenRouter / Azure OpenAI — base URL + model + key configurable).
 - **Personas** — 🔥 RAZOR (Provocateur), 😂 GLITCH (Comedian), 🧠 CORTEX (Know-It-All); each maps to a voice + voice-style + system prompt.
 - **Avatar stage** — character/style/voice/style-degree/rate controls, subtitle overlay, fullscreen toggle, speaking glow.
-- **Speaker briefing** — paste or load a `.txt`/`.md` file as reasoner context.
+- **Speaker briefing** — paste or load a `.pptx`, `.docx`, `.txt` or `.md` file as reasoner context. `.pptx`/`.docx` are unzipped and parsed in the browser via JSZip (no server, no upload).
+- **Transcript compression** — for long talks, **🗜 Compress** rolls older utterances into a running summary (mock-extractive or LLM), shown as a banner and fed back to the reasoner as context.
 - **Settings panel** — Azure key/region/language + reasoner config, saved to `localStorage` (no keys baked into the file).
 - **Hisense-branded** dark broadcast-operator UI (Hisense green accents).
 
