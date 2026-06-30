@@ -148,6 +148,11 @@ body{
 }
 #aiOutput.empty{display:flex;align-items:center;justify-content:center}
 .action-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:13px}
+.qcard{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border-radius:var(--radius-sm);background:var(--surface-3);border:1px solid var(--border);transition:.16s}
+.qcard:hover{border-color:var(--border-2)}
+.qcard.asked{border-color:var(--hisense);background:var(--hisense-tint);box-shadow:0 0 0 1px var(--hisense)}
+.qcard .qtext{font-size:13.5px;line-height:1.45;color:var(--text)}
+.qcard .btn{flex-shrink:0}
 
 /* ── Buttons ─────────────────────────────────────────────── */
 .btn{
@@ -323,7 +328,12 @@ details.adv[open] summary::before{content:"▾ "}
   <!-- COLUMN 3 — Avatar Stage -->
   <div class="stage-col col-3">
     <div class="panel">
-      <div class="panel-head"><h2>Avatar Stage</h2><button class="btn sm ghost" onclick="toggleFullscreen()" title="Fullscreen stage">⛶</button></div>
+      <div class="panel-head"><h2>Avatar Stage</h2>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm ghost" onclick="popOutStage()" title="Pop out to a separate window you can move to another screen">⧉ Pop out</button>
+          <button class="btn sm ghost" onclick="toggleFullscreen()" title="Fullscreen stage">⛶</button>
+        </div>
+      </div>
       <div class="panel-body">
 
         <div class="stage-screen" id="stageScreen">
@@ -444,24 +454,30 @@ const VOICES = [
 ];
 const VOICE_STYLES = ["","chat","cheerful","friendly","customerservice","newscast","assistant","calm","empathetic","excited","sad","angry","whispering"];
 
-/* ── Personas ─────────────────────────────────────────────── */
+/* ── Personas ─────────────────────────────────────────────────
+   Conference moderation styles, mapped to session types:
+   HOST  = polished MC / facilitator (keynotes, flow, warmth)
+   PROBE = substantive analyst (technical deep-dives, trade-offs)
+   SPARK = audience advocate (product/industry, accessibility, energy)
+   All facilitate the speaker rather than upstage them.            */
 const PERSONAS = {
-  provocateur:{ name:"RAZOR",  role:"Provocateur", emo:"🔥",
-    voice:"en-US-BrianMultilingualNeural", voiceStyle:"",
-    system:"You are RAZOR, a provocative AI conference co-moderator. You are sharp, fearless and a little confrontational — you challenge assumptions and push speakers with pointed questions. Stay on-topic and concise (max 3 sentences for a spoken response)." },
-  comedian:{ name:"GLITCH", role:"Comedian", emo:"😂",
-    voice:"en-US-AndrewMultilingualNeural", voiceStyle:"cheerful",
-    system:"You are GLITCH, a witty comedic AI conference co-moderator. You keep the room light with clever, good-natured humour while staying relevant to the talk. Concise (max 3 sentences for a spoken response)." },
-  smartass:{ name:"CORTEX", role:"Know-It-All", emo:"🧠",
+  host:{ name:"HOST", role:"The Host", emo:"🎤",
+    voice:"en-US-AndrewMultilingualNeural", voiceStyle:"friendly",
+    system:"You are HOST, the warm and polished AI co-host of a technology conference. Your job is to keep the session flowing, welcome the audience, highlight the speaker's strongest points, and bridge smoothly between ideas. You are confident, gracious and engaging — never sarcastic or confrontational. Speak in clean, broadcast-ready sentences (max 3 for a spoken response)." },
+  analyst:{ name:"PROBE", role:"The Analyst", emo:"🔬",
     voice:"en-US-SteffanMultilingualNeural", voiceStyle:"assistant",
-    system:"You are CORTEX, an erudite know-it-all AI conference co-moderator. You add precise, insightful depth with a faint air of superiority, but you are genuinely informative. Concise (max 3 sentences for a spoken response)." }
+    system:"You are PROBE, an incisive AI analyst co-moderating a technology conference. You add substance: you clarify technical claims, surface trade-offs, and ask the precise question that deepens the audience's understanding. You are respectful and genuinely curious, never condescending. Concise and rigorous (max 3 sentences for a spoken response)." },
+  advocate:{ name:"SPARK", role:"Audience Voice", emo:"💡",
+    voice:"en-US-AvaMultilingualNeural", voiceStyle:"cheerful",
+    system:"You are SPARK, the AI audience advocate at a technology conference. You channel the room's curiosity — translating dense material into 'what does this mean for me?' and keeping the energy high with accessible, enthusiastic framing. You are friendly and inclusive, never flippant or dumbed-down. Concise and lively (max 3 sentences for a spoken response)." }
 };
-let activePersona = "provocateur";
+let activePersona = "host";
 
 /* ── State ────────────────────────────────────────────────── */
 let recognizer=null, listening=false;
 let avatarSynth=null, peer=null, remoteStream=null, audioCtx=null, avatarReady=false;
 let utterances=[], partialEl=null, logCount=0, rollingSummary="";
+let currentQuestions=[], pendingSpeech="", stageWindow=null;
 let usageStart=null, usageTimer=null, usageSecs=0;
 
 /* ── DOM ──────────────────────────────────────────────────── */
@@ -646,11 +662,20 @@ async function llmCompress(text){
 async function doAction(action){
   const text=reasonerContext();
   if(!text && !briefingText()){ log("error","No transcript yet — start listening or add a briefing."); return; }
+  clearQuestions(); pendingSpeech="";
   aiOutput.className="empty"; aiOutput.textContent="Generating…"; aiBadge.innerHTML="";
+  const source = (cfg.reasoner==="llm" && cfg.llmKey) ? "llm" : "mock";
   try{
-    let out, source;
-    if(cfg.reasoner==="llm" && cfg.llmKey){ out=await llmReason(action,text); source="llm"; }
-    else { out=mockReason(action,text); source="mock"; }
+    if(action==="questions"){
+      const qs = await getQuestions(text);
+      if(!qs.length) throw new Error("no questions returned");
+      renderQuestions(qs);
+      aiBadge.innerHTML=`<span class="badge ${source}">${source}</span>`;
+      log("ai",`questions: ${qs.length} suggested — pick one for the avatar to ask`);
+      return;
+    }
+    const out = (source==="llm") ? await llmReason(action,text) : mockReason(action,text);
+    pendingSpeech = out;
     aiOutput.className=""; aiOutput.textContent=out;
     aiBadge.innerHTML=`<span class="badge ${source}">${source}</span>`;
     log("ai",`${action}: ${out.slice(0,70)}…`);
@@ -660,6 +685,42 @@ async function doAction(action){
     aiBadge.innerHTML=`<span class="badge mock">error</span>`;
     log("error","Reasoner failed: "+(err.message||err));
   }
+}
+
+/* Questions → 3 candidates the operator chooses from; the chosen one is posed by the avatar. */
+async function getQuestions(text){
+  if(cfg.reasoner==="llm" && cfg.llmKey){
+    const raw = await llmReason("questions", text);
+    const parsed = raw.split(/\n+/).map(s=>s.replace(/^\s*\d+[\.\):]\s*/,"").replace(/^[-*•]\s*/,"").trim()).filter(Boolean);
+    if(parsed.length) return parsed.slice(0,3);
+  }
+  return mockQuestions(text);
+}
+function clearQuestions(){ currentQuestions=[]; const q=$("questionList"); if(q) q.remove(); }
+function renderQuestions(qs){
+  currentQuestions=qs;
+  aiOutput.className="";
+  aiOutput.innerHTML="";
+  const head=document.createElement("div");
+  head.style.cssText="font-size:12px;color:var(--text-2);margin-bottom:11px";
+  head.textContent="Pick one question for the avatar to ask the speaker:";
+  aiOutput.appendChild(head);
+  const list=document.createElement("div"); list.id="questionList"; list.style.cssText="display:flex;flex-direction:column;gap:9px";
+  qs.forEach((q,i)=>{
+    const card=document.createElement("div"); card.className="qcard"; card.id="qcard-"+i;
+    const t=document.createElement("div"); t.className="qtext"; t.textContent=q;
+    const b=document.createElement("button"); b.className="btn sm primary"; b.textContent="🎤 Ask"; b.onclick=()=>askQuestion(i);
+    card.append(t,b); list.appendChild(card);
+  });
+  aiOutput.appendChild(list);
+}
+function askQuestion(i){
+  if(i<0 || i>=currentQuestions.length) return;
+  pendingSpeech = currentQuestions[i];
+  document.querySelectorAll(".qcard").forEach(c=>c.classList.remove("asked"));
+  $("qcard-"+i)?.classList.add("asked");
+  log("ai",`Asking the speaker (Q${i+1}): ${currentQuestions[i].slice(0,60)}…`);
+  speakCurrent();
 }
 
 /* — Mock reasoner: keyword extraction + extractive summary + templates — */
@@ -673,7 +734,6 @@ function sentences(text){ return (text.match(/[^.!?]+[.!?]+/g)||[text]).map(s=>s
 function mockReason(action,text){
   const ctx=(briefingText()?briefingText()+" ":"")+text;
   const kws=keywords(ctx);
-  const p=PERSONAS[activePersona];
   if(action==="summarize"){
     const ss=sentences(text);
     const scored=ss.map(s=>({s,score:kws.reduce((a,k)=>a+(s.toLowerCase().includes(k)?1:0),0)}))
@@ -681,22 +741,25 @@ function mockReason(action,text){
     const top=ss.length?scored.join(" "):"(not enough speech captured yet)";
     return `Key themes: ${kws.join(", ")}.\n\nSummary: ${top}`;
   }
-  if(action==="questions"){
-    const k=kws.length?kws:["this topic"];
-    return [
-      `1. You touched on ${k[0]} — what's the strongest objection to that, and how do you answer it?`,
-      `2. How does ${k[1]||k[0]} hold up at scale or under real-world constraints?`,
-      `3. If you had to bet, where does ${k[2]||k[0]} go in the next two years?`
-    ].join("\n");
-  }
-  // response — persona flavoured
+  // response — persona flavoured, conference-appropriate
   const topic=kws[0]||"that";
   const lines={
-    provocateur:`Let's not let that slide — you say ${topic} matters, but where's the evidence it actually changes outcomes? Convince the skeptics in this room.`,
-    comedian:`So basically ${topic} is the new ${kws[1]||"buzzword"} — I love it. Quick question though: does it survive contact with an actual customer, or just a slide deck?`,
-    smartass:`A useful framing of ${topic}, though it's worth noting the trade-off with ${kws[1]||"latency"} that's doing a lot of quiet work here. Care to make that explicit?`
+    host:`That's a real highlight — ${topic} is exactly what this audience came to hear about. Walk us through what makes it work in practice.`,
+    analyst:`Let's sharpen that: when you say ${topic}, what's the trade-off with ${kws[1]||"cost or latency"} sitting underneath it, and how did you measure it?`,
+    advocate:`So for everyone listening — ${topic} sounds powerful, but what does it actually change for me on day one? Give us the concrete win.`
   };
-  return lines[activePersona] || lines.provocateur;
+  return lines[activePersona] || lines.host;
+}
+
+// Questions return an array so the operator can pick exactly one to ask.
+function mockQuestions(text){
+  const ctx=(briefingText()?briefingText()+" ":"")+text;
+  const k=keywords(ctx); const kk=k.length?k:["this topic"];
+  return [
+    `You touched on ${kk[0]} — what's the strongest objection to it, and how do you answer that?`,
+    `How does ${kk[1]||kk[0]} hold up at scale or under real-world constraints?`,
+    `If you had to bet, where does ${kk[2]||kk[0]} go in the next two years?`
+  ];
 }
 
 /* — LLM reasoner: OpenAI-compatible chat completions — */
@@ -765,6 +828,7 @@ async function startAvatar(){
       v.muted=false; v.volume=1; a.muted=false; a.volume=1;
       $("stagePh").style.display="none";
       v.play().catch(()=>{}); a.play().catch(()=>{});
+      mirrorToPopout();   // if the stage is popped out, feed it the stream too
     };
     // recvonly transceivers BEFORE start — the step the old backend build was missing
     peer.addTransceiver("video",{direction:"recvonly"});
@@ -784,8 +848,8 @@ async function startAvatar(){
 }
 
 function speakCurrent(){
-  const text=(aiOutput.classList.contains("empty")?"":aiOutput.textContent).trim();
-  if(!text){ log("error","Nothing to speak — generate a response first."); return; }
+  const text=(pendingSpeech||"").trim();
+  if(!text){ log("error","Nothing to speak — generate a response or pick a question first."); return; }
   if(!avatarSynth||!avatarReady){ log("error","Start the avatar first (▶ Start Avatar)."); return; }
   unlockAudio();
   const ssml=buildSsml(text);
@@ -814,12 +878,32 @@ function stopAvatar(){
   try{ peer?.close(); }catch(e){}
   avatarSynth=null; peer=null; remoteStream=null; avatarReady=false;
   $("avatarVideo").srcObject=null; $("stagePh").style.display="grid";
+  const pv=popoutVideo(); if(pv) pv.srcObject=null;
   setStageSpeaking(false); setAv("","Disconnected");
   log("system","Avatar stopped.");
 }
 
 function setStageSpeaking(on){ $("stageScreen").classList.toggle("speaking",on); }
 function toggleFullscreen(){ const el=$("stageScreen"); if(!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.(); }
+
+/* ── Pop-out avatar stage (move to a second screen / enlarge) ── */
+function popoutVideo(){ return (stageWindow && !stageWindow.closed) ? stageWindow.document.getElementById("popVideo") : null; }
+function mirrorToPopout(){ const pv=popoutVideo(); if(pv && remoteStream){ pv.srcObject=remoteStream; pv.play().catch(()=>{}); } }
+function popOutStage(){
+  if(stageWindow && !stageWindow.closed){ stageWindow.focus(); return; }
+  stageWindow=window.open("","hisenseAvatarStage","width=1280,height=720");
+  if(!stageWindow){ log("error","Pop-out blocked — allow pop-ups for this page, then click Pop out again."); return; }
+  const d=stageWindow.document;
+  d.title="Hisense AI Moderator — Avatar Stage";
+  d.body.style.cssText="margin:0;background:#000;height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center";
+  const v=d.createElement("video");
+  v.id="popVideo"; v.autoplay=true; v.playsInline=true; v.muted=true;   // audio stays on the main window
+  v.style.cssText="width:100%;height:100%;object-fit:contain;background:#000";
+  d.body.appendChild(v);
+  mirrorToPopout();
+  stageWindow.addEventListener("pagehide",()=>{ stageWindow=null; log("system","Avatar pop-out window closed."); },{once:true});
+  log("system","Avatar popped out — drag the window to your second screen and resize it.");
+}
 
 /* ════════════════ MISC UI ════════════════ */
 function setMic(state,txt){ $("micDot").className="dot "+(state==="live"?"live":state==="ok"?"ok":state==="err"?"err":""); $("micState").textContent=txt; }
@@ -841,6 +925,7 @@ function log(kind,msg){
 }
 function clearSession(){
   utterances=[]; partialEl=null; rollingSummary="";
+  currentQuestions=[]; pendingSpeech=""; clearQuestions();
   renderTranscript();
   $("uttCount").textContent="0 utterances";
   aiOutput.className="empty"; aiOutput.textContent="Generate a summary, questions, or a moderator response — then send it to the avatar."; aiBadge.innerHTML="";

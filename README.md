@@ -13,8 +13,9 @@ A real-time AI moderator assistant for technology conferences. A human operator 
 **What it includes**
 - **Live transcript** — browser `SpeechRecognizer` (continuous recognition, partial + final).
 - **Reasoner** — `Mock` (offline keyword/extractive logic) **and** an `LLM` toggle calling any OpenAI-compatible endpoint (Groq / OpenAI / OpenRouter / Azure OpenAI — base URL + model + key configurable).
-- **Personas** — 🔥 RAZOR (Provocateur), 😂 GLITCH (Comedian), 🧠 CORTEX (Know-It-All); each maps to a voice + voice-style + system prompt.
-- **Avatar stage** — character/style/voice/style-degree/rate controls, subtitle overlay, fullscreen toggle, speaking glow.
+- **Conference moderator personas** — 🎤 **HOST** (polished MC / facilitator — keynotes & flow), 🔬 **PROBE** (analyst — technical depth & trade-offs), 💡 **SPARK** (audience advocate — accessibility & energy). Each maps to a voice + voice-style + system prompt and is tuned to *facilitate* the speaker rather than upstage them.
+- **Questions → pick one** — the **❓ Questions** action proposes three candidate questions as selectable cards; the operator clicks **🎤 Ask** on exactly one, and the avatar poses that question to the speaker.
+- **Avatar stage** — character/style/voice/style-degree/rate controls, fullscreen toggle, speaking glow, and a **⧉ Pop out** button that opens the avatar in a separate window you can drag to a second screen and enlarge (audio stays on the main window).
 - **Speaker briefing** — paste or load a `.pptx`, `.docx`, `.txt` or `.md` file as reasoner context. `.pptx`/`.docx` are unzipped and parsed in the browser via JSZip (no server, no upload).
 - **Transcript compression** — for long talks, **🗜 Compress** rolls older utterances into a running summary (mock-extractive or LLM), shown as a banner and fed back to the reasoner as context.
 - **Settings panel** — Azure key/region/language + reasoner config, saved to `localStorage` (no keys baked into the file).
@@ -23,7 +24,7 @@ A real-time AI moderator assistant for technology conferences. A human operator 
 **Run it**
 1. Open ⚙ **Settings**, paste your **Azure Speech key** (must be **Standard S0** tier — required for the avatar) and region.
 2. Click **▶ Start Avatar**, then **▶ Start Listening**.
-3. Generate **Summarize / Questions / Response**, review, and **🗣 Send to Avatar**.
+3. Generate **Summarize / Response** (review, then **🗣 Send to Avatar**), or **Questions** and click **🎤 Ask** on the one you want the avatar to pose.
 
 > **Microphone note:** browsers only grant mic access in a *secure context*. Serve the file over `localhost` (e.g. `python -m http.server`) or `https` — opening via `file://` may block the microphone (the avatar/TTS still works either way).
 
