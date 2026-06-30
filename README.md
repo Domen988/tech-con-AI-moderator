@@ -1,0 +1,147 @@
+# AI Conference Moderator — Proof of Concept
+
+A real-time AI moderator assistant for technology conferences. A human operator controls an AI assistant that listens to speech, transcribes it via Azure Speech-to-Text, and generates summaries, follow-up questions, and moderator responses on demand.
+
+## Architecture
+
+```
+┌─────────────┐      WebSocket       ┌──────────────────────────┐
+│  Browser UI  │◄────────────────────►│  FastAPI Backend         │
+│  (operator   │                      │                          │
+│   dashboard) │◄── REST /api/* ─────►│  ┌────────────────────┐  │
+└─────────────┘                      │  │ TranscriptionService│  │
+                                     │  │ (Azure Speech SDK)  │  │
+                                     │  └────────┬───────────┘  │
+                                     │           │              │
+                                     │  ┌────────▼───────────┐  │
+                                     │  │  SessionManager     │  │
+                                     │  │  (in-memory state)  │  │
+                                     │  └────────┬───────────┘  │
+                                     │           │              │
+                                     │  ┌────────▼───────────┐  │
+                                     │  │  Reasoner           │  │
+                                     │  │  (Mock or LLM)      │  │
+                                     │  └────────────────────┘  │
+                                     └──────────────────────────┘
+```
+
+**Data flow:**
+1. Microphone → Azure Speech SDK (runs on the server machine)
+2. Azure SDK fires `recognizing` (partial) and `recognized` (final) callbacks
+3. Callbacks push events into an asyncio queue
+4. WebSocket handler drains the queue and broadcasts to all connected browsers
+5. Operator clicks a button → REST call → Reasoner processes recent transcript → response displayed
+
+**Reasoner modes:**
+- `MockReasoner` (default): keyword extraction, extractive summaries, template questions. Works with zero additional API keys.
+- `LLMReasoner` (optional): OpenAI or Azure OpenAI chat completions. Activate by setting the corresponding API key in `.env`.
+
+## File Structure
+
+```
+ai-moderator/
+├── run.py                    # Entry point
+├── requirements.txt
+├── .env.example
+├── .env                      # Your actual config (git-ignored)
+├── app/
+│   ├── __init__.py
+│   ├── main.py               # FastAPI app factory
+│   ├── config.py             # Settings from env vars
+│   ├── logging_setup.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── api.py            # REST endpoints (summarize, questions, etc.)
+│   │   └── ws.py             # WebSocket for real-time transcript
+│   └── services/
+│       ├── __init__.py
+│       ├── session.py         # In-memory transcript + activity log
+│       ├── transcription.py   # Azure Speech SDK wrapper
+│       ├── reasoner.py        # BaseReasoner + MockReasoner
+│       └── llm_reasoner.py    # Optional LLM-backed reasoner
+├── static/
+│   ├── css/style.css
+│   └── js/app.js
+└── templates/
+    └── index.html
+```
+
+## Setup & Run
+
+### 1. Prerequisites
+- Python 3.11+
+- A working microphone on the machine running the server
+- Azure Speech-to-Text key and region
+
+### 2. Create virtual environment
+```bash
+cd ai-moderator
+python -m venv .venv
+source .venv/bin/activate   # Linux/Mac
+# .venv\Scripts\activate    # Windows
+```
+
+### 3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure environment
+```bash
+cp .env.example .env
+# Edit .env and set your AZURE_SPEECH_KEY and AZURE_SPEECH_REGION
+```
+
+### 5. Run
+```bash
+python run.py
+```
+
+### 6. Open browser
+Navigate to **http://localhost:8000**
+
+Click **Start Listening**, speak into your microphone, and watch the transcript appear. Use the buttons on the right panel to generate AI outputs.
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `AZURE_SPEECH_KEY` | Yes | Azure Cognitive Services Speech API key |
+| `AZURE_SPEECH_REGION` | Yes | Azure region (e.g. `westeurope`) |
+| `OPENAI_API_KEY` | No | Enables LLMReasoner via OpenAI or OpenRouter (OpenAI-compatible) |
+| `OPENAI_API_BASE_URL` | No | Optional custom OpenAI-compatible API base URL |
+| `GROQ_API_KEY` | No | Enables native Groq support |
+| `GROQ_API_BASE_URL` | No | Optional Groq API base URL for `gsk_` keys or OpenAI-compatible fallback |
+| `GROQ_MODEL` | No | Groq model name (default: `llama-3.3-70b-versatile`) |
+| `AVATAR_API_URL` | No | Optional full video avatar generation endpoint |
+| `AVATAR_API_KEY` | No | Optional avatar service API key |
+| `AVATAR_MODEL` | No | Optional avatar model name for video generation |
+| `AVATAR_CHARACTER` | No | Optional Azure avatar character name (e.g. `lisa`) |
+| `AVATAR_STYLE` | No | Optional Azure avatar style (e.g. `casual-sitting`) |
+| `AZURE_OPENAI_API_KEY` | No | Enables LLMReasoner via Azure OpenAI |
+| `AZURE_OPENAI_ENDPOINT` | No | Azure OpenAI endpoint URL |
+| `AZURE_OPENAI_DEPLOYMENT` | No | Azure OpenAI deployment name |
+| `AZURE_SPEECH_FREE_MINUTES` | No | Optional free-tier speech minutes for UI remaining usage display |
+| `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING` (default: `INFO`) |
+| `HOST` | No | Bind address (default: `0.0.0.0`) |
+| `PORT` | No | Port (default: `8000`) |
+
+## Extension Path
+
+This PoC is designed for straightforward extension:
+
+**Text-to-Speech:** Add a `TTSService` in `app/services/tts.py` using Azure Speech SDK's `SpeechSynthesizer`. Wire it to a new `/api/speak` endpoint. The frontend can trigger playback when the operator approves an AI response.
+
+**Full video avatar:** A full talking-head avatar requires an external avatar provider. Configure `AVATAR_API_URL`, `AVATAR_API_KEY`, and `AVATAR_MODEL`, then implement `app/services/avatar.py` to call that service. The app already includes the `/api/avatar` endpoint and a browser avatar screen placeholder for video playback.
+
+**Avatar rendering:** Replace the emoji placeholder in the persona panel with a `<canvas>` or `<video>` element. Azure provides a Talking Avatar API, or you can use a lightweight lip-sync library driven by the TTS audio stream.
+
+**Full-screen stage output:** Add a second route (`/stage`) that serves a stripped-down, read-only view showing only the AI persona and approved outputs. Project this on the conference screen while the operator uses the dashboard on their laptop.
+
+**Audience Q&A:** Add a `/audience` route with a simple form. Submitted questions go into a queue. The operator dashboard shows the queue and can select questions to feed into the Reasoner for AI-assisted answers.
+
+**Moderator approval flow:** Instead of displaying AI output immediately, queue it in a "pending" state. The operator reviews and clicks "Approve" to push it to the stage display. Add WebSocket message types for `pending` and `approved`.
+
+**Multi-speaker diarization:** Azure Speech SDK supports speaker diarization via `ConversationTranscriber`. Swap `SpeechRecognizer` for `ConversationTranscriber` in `transcription.py` and tag each utterance with a speaker ID.
+
+**Cloud deployment:** Containerize with a `Dockerfile`. The microphone input would need to change from local device to a streaming audio source (e.g., a stage audio feed piped via WebSocket or RTMP). Deploy on Azure Container Apps or a VM with audio input hardware.
