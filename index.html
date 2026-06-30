@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Conference Moderator — Hisense</title>
+
+<!-- Azure Speech SDK (browser bundle) — drives both Speech-to-Text and the real-time avatar -->
+<script src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>
+
+<style>
+:root{
+  /* ── Hisense palette ─────────────────────────────────────── */
+  --hisense:        #00A04A;   /* brand green            */
+  --hisense-bright: #19C268;   /* hover / glow           */
+  --hisense-dark:   #007A37;   /* pressed / deep         */
+  --hisense-tint:   rgba(0,160,74,.14);
+
+  --bg:        #0A0E0C;
+  --surface:   #111714;
+  --surface-2: #18211D;
+  --surface-3: #1F2A25;
+  --border:    #26332D;
+  --border-2:  #324138;
+
+  --text:      #EAF3EE;
+  --text-2:    #A9B8B0;
+  --text-dim:  #6E7E76;
+
+  --danger:    #E5484D;
+  --warn:      #F2B33D;
+  --info:      #3D9BE5;
+
+  --radius:    14px;
+  --radius-sm: 9px;
+  --shadow:    0 8px 30px rgba(0,0,0,.45);
+  font-synthesis: none;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(0,160,74,.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(0,160,74,.06), transparent 55%),
+    var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.header{
+  display:flex;align-items:center;gap:18px;
+  padding:14px 22px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg, rgba(24,33,29,.8), rgba(17,23,20,.6));
+  backdrop-filter:blur(8px);
+  position:sticky;top:0;z-index:40;
+}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-mark{
+  width:34px;height:34px;border-radius:9px;
+  background:linear-gradient(135deg,var(--hisense),var(--hisense-dark));
+  display:grid;place-items:center;font-weight:800;color:#fff;font-size:16px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.06), 0 6px 16px rgba(0,160,74,.35);
+}
+.brand-text{line-height:1.05}
+.brand-text .b1{font-weight:800;letter-spacing:.5px;font-size:15px}
+.brand-text .b1 b{color:var(--hisense-bright)}
+.brand-text .b2{font-size:10.5px;color:var(--text-dim);letter-spacing:.16em;text-transform:uppercase}
+
+.header-spacer{flex:1}
+
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 13px;border-radius:999px;
+  background:var(--surface-2);border:1px solid var(--border);
+  font-size:12px;color:var(--text-2);white-space:nowrap;
+}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--text-dim);transition:.3s}
+.dot.ok{background:var(--hisense);box-shadow:0 0 0 4px var(--hisense-tint)}
+.dot.live{background:var(--hisense-bright);box-shadow:0 0 0 4px var(--hisense-tint);animation:pulse 1.4s infinite}
+.dot.err{background:var(--danger);box-shadow:0 0 0 4px rgba(229,72,77,.18)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.icon-btn{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface-2);color:var(--text-2);cursor:pointer;font-size:17px;
+  display:grid;place-items:center;transition:.18s;
+}
+.icon-btn:hover{border-color:var(--hisense);color:var(--text);background:var(--surface-3)}
+
+/* ── Layout grid ─────────────────────────────────────────── */
+.app{
+  display:grid;
+  grid-template-columns: 1.15fr 1.25fr 1fr;
+  gap:16px;padding:16px;max-width:1640px;margin:0 auto;
+  align-items:start;
+}
+@media(max-width:1180px){ .app{grid-template-columns:1fr 1fr} .stage-col{grid-column:1/-1} }
+@media(max-width:780px){ .app{grid-template-columns:1fr} }
+
+.panel{
+  background:linear-gradient(180deg,var(--surface),rgba(17,23,20,.7));
+  border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+}
+.panel + .panel{margin-top:16px}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 16px;border-bottom:1px solid var(--border);
+  background:rgba(0,160,74,.04);
+}
+.panel-head h2{
+  margin:0;font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text);
+  display:flex;align-items:center;gap:9px;
+}
+.panel-head h2::before{content:"";width:4px;height:15px;border-radius:2px;background:var(--hisense)}
+.head-meta{font-size:11px;color:var(--text-dim)}
+.panel-body{padding:16px}
+
+/* ── Transcript ──────────────────────────────────────────── */
+#transcript{height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.utt{
+  padding:9px 13px;border-radius:var(--radius-sm);
+  background:var(--surface-2);border-left:3px solid var(--border-2);
+  font-size:14px;line-height:1.5;color:var(--text);animation:rise .25s ease;
+}
+.utt.partial{color:var(--text-2);border-left-color:var(--hisense);background:var(--hisense-tint);font-style:italic}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.empty{color:var(--text-dim);font-size:13px;text-align:center;padding:30px 10px;font-style:italic}
+
+/* ── AI output ───────────────────────────────────────────── */
+.badge{font-size:10px;font-weight:800;letter-spacing:.08em;padding:3px 8px;border-radius:6px;text-transform:uppercase}
+.badge.mock{background:rgba(242,179,61,.16);color:var(--warn);border:1px solid rgba(242,179,61,.3)}
+.badge.llm{background:var(--hisense-tint);color:var(--hisense-bright);border:1px solid rgba(0,160,74,.35)}
+.badge.brief{background:rgba(61,155,229,.16);color:var(--info);border:1px solid rgba(61,155,229,.3)}
+#aiOutput{
+  min-height:120px;border-radius:var(--radius-sm);background:var(--surface-2);
+  border:1px solid var(--border);padding:15px;font-size:14.5px;line-height:1.6;
+  white-space:pre-wrap;color:var(--text);
+}
+#aiOutput.empty{display:flex;align-items:center;justify-content:center}
+.action-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:13px}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn{
+  appearance:none;border:1px solid var(--border-2);background:var(--surface-2);
+  color:var(--text);font-size:13px;font-weight:600;padding:10px 15px;border-radius:10px;
+  cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px;justify-content:center;
+}
+.btn:hover:not(:disabled){border-color:var(--hisense);background:var(--surface-3);transform:translateY(-1px)}
+.btn:active:not(:disabled){transform:none}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.primary{background:linear-gradient(135deg,var(--hisense),var(--hisense-dark));border-color:transparent;color:#fff;box-shadow:0 6px 16px rgba(0,160,74,.3)}
+.btn.primary:hover:not(:disabled){background:linear-gradient(135deg,var(--hisense-bright),var(--hisense))}
+.btn.danger{color:#ffb4b6;border-color:rgba(229,72,77,.35)}
+.btn.danger:hover:not(:disabled){background:rgba(229,72,77,.14);border-color:var(--danger)}
+.btn.ghost{background:transparent}
+.btn.block{width:100%}
+.btn.sm{padding:7px 11px;font-size:12px}
+
+/* ── Stage / Avatar ──────────────────────────────────────── */
+.stage-screen{
+  position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;
+  background:radial-gradient(circle at 50% 35%, #16201b, #080b09);
+  border:1px solid var(--border);display:grid;place-items:center;
+}
+.stage-screen.speaking{box-shadow:0 0 0 2px var(--hisense), 0 0 36px rgba(0,160,74,.45)}
+.stage-screen video{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.stage-ph{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--text-dim);gap:6px;pointer-events:none}
+.stage-ph .big{font-size:46px;filter:grayscale(.2);opacity:.8}
+.stage-ph .lbl{font-size:12px;letter-spacing:.1em;text-transform:uppercase}
+#subtitle{
+  position:absolute;left:5%;right:5%;bottom:18px;display:none;
+  background:rgba(0,0,0,.74);color:#fff;padding:10px 16px;border-radius:9px;
+  font-size:clamp(13px,1.5vw,19px);line-height:1.35;text-align:center;
+  border:1px solid rgba(0,160,74,.4);
+}
+.stage-bar{display:flex;align-items:center;justify-content:space-between;margin-top:11px;gap:10px}
+.stage-state{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+
+/* ── Persona ─────────────────────────────────────────────── */
+.persona-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:6px}
+.persona{
+  border:1px solid var(--border);background:var(--surface-2);border-radius:11px;
+  padding:11px 6px;text-align:center;cursor:pointer;transition:.16s;
+}
+.persona:hover{border-color:var(--border-2);background:var(--surface-3)}
+.persona.active{border-color:var(--hisense);background:var(--hisense-tint);box-shadow:0 0 0 1px var(--hisense)}
+.persona .emo{font-size:22px;line-height:1}
+.persona .nm{font-weight:800;font-size:12.5px;margin-top:5px;letter-spacing:.04em}
+.persona .role{font-size:9.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+.label{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-2);margin:14px 0 6px}
+select,input,textarea{
+  width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+  border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;
+}
+select:focus,input:focus,textarea:focus{outline:none;border-color:var(--hisense);box-shadow:0 0 0 3px var(--hisense-tint)}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+
+details.adv{margin-top:12px;border-top:1px solid var(--border);padding-top:8px}
+details.adv summary{cursor:pointer;font-size:12px;color:var(--text-2);list-style:none}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary::before{content:"▸ ";color:var(--hisense)}
+details.adv[open] summary::before{content:"▾ "}
+
+/* ── Activity log ────────────────────────────────────────── */
+#log{max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.logrow{display:flex;gap:9px;align-items:baseline;padding:4px 0;border-bottom:1px solid rgba(38,51,45,.5)}
+.logrow .t{color:var(--text-dim);font-variant-numeric:tabular-nums;font-size:11px;flex-shrink:0}
+.logtag{font-size:9.5px;font-weight:800;text-transform:uppercase;padding:2px 6px;border-radius:5px;flex-shrink:0;letter-spacing:.05em}
+.logtag.system{background:var(--surface-3);color:var(--text-2)}
+.logtag.error{background:rgba(229,72,77,.16);color:#ff9a9c}
+.logtag.ai{background:var(--hisense-tint);color:var(--hisense-bright)}
+.logrow .msg{color:var(--text-2);word-break:break-word}
+
+/* ── Toolbar ─────────────────────────────────────────────── */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap}
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-bg{
+  position:fixed;inset:0;background:rgba(5,8,6,.72);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;z-index:80;padding:20px;
+}
+.modal-bg.open{display:flex}
+.modal{
+  width:560px;max-width:100%;max-height:90vh;overflow-y:auto;
+  background:var(--surface);border:1px solid var(--border-2);border-radius:16px;box-shadow:var(--shadow);
+}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border)}
+.modal-head h3{margin:0;font-size:16px}
+.modal-body{padding:20px;display:flex;flex-direction:column;gap:4px}
+.hint{font-size:11.5px;color:var(--text-dim);margin:3px 0 10px}
+.modal-foot{padding:16px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+.seg{display:flex;gap:6px;margin-top:4px}
+.seg .btn{flex:1}
+.seg .btn.on{border-color:var(--hisense);background:var(--hisense-tint);color:var(--text)}
+
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:var(--hisense-dark)}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════ -->
+<header class="header">
+  <div class="brand">
+    <div class="brand-mark">H</div>
+    <div class="brand-text">
+      <div class="b1"><b>Hisense</b> AI Moderator</div>
+      <div class="b2">Conference Operator Console</div>
+    </div>
+  </div>
+  <div class="header-spacer"></div>
+  <div class="pill"><span class="dot" id="micDot"></span><span id="micState">Idle</span></div>
+  <div class="pill"><span class="dot" id="avDot"></span><span id="avState">Avatar offline</span></div>
+  <div class="pill" id="usagePill" style="display:none">⏱ <span id="usage">0s</span></div>
+  <button class="icon-btn" title="Settings" onclick="openSettings()">⚙</button>
+</header>
+
+<!-- ══ MAIN ════════════════════════════════════════════════ -->
+<div class="app">
+
+  <!-- COLUMN 1 — Transcript + Log + Controls -->
+  <div class="col-1">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Live Transcript</h2>
+        <span class="head-meta" id="uttCount">0 utterances</span>
+      </div>
+      <div class="panel-body">
+        <div id="transcript"><div class="empty" id="transcriptEmpty">Waiting for speech… press Start Listening.</div></div>
+        <div class="toolbar" style="margin-top:13px">
+          <button class="btn primary" id="btnListen" onclick="toggleListening()">▶ Start Listening</button>
+          <button class="btn ghost danger sm" onclick="clearSession()" title="Clear transcript & log">🗑 New Talk</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Activity Log</h2><span class="head-meta" id="logCount">0 entries</span></div>
+      <div class="panel-body"><div id="log"><div class="empty">Activity will appear here.</div></div></div>
+    </div>
+  </div>
+
+  <!-- COLUMN 2 — AI Assistance + Briefing -->
+  <div class="col-2">
+    <div class="panel">
+      <div class="panel-head"><h2>AI Assistance</h2><span id="aiBadge"></span></div>
+      <div class="panel-body">
+        <div id="aiOutput" class="empty">Generate a summary, questions, or a moderator response — then send it to the avatar.</div>
+        <div class="action-row">
+          <button class="btn" onclick="doAction('summarize')">📋 Summarize</button>
+          <button class="btn" onclick="doAction('questions')">❓ Questions</button>
+          <button class="btn" onclick="doAction('response')">💬 Response</button>
+        </div>
+        <div class="action-row">
+          <button class="btn primary block" id="btnSpeak" onclick="speakCurrent()">🗣 Send to Avatar</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:11px;font-size:12px;color:var(--text-2);cursor:pointer">
+          <input type="checkbox" id="autoSpeak" style="width:auto"> Auto-speak the moderator response when generated
+        </label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Speaker Briefing</h2><span class="head-meta" id="briefMeta">none</span></div>
+      <div class="panel-body">
+        <p class="hint" style="margin-top:0">Paste the talk abstract / speaker notes, or load a .txt / .md file. The reasoner uses this as context.</p>
+        <textarea id="briefing" rows="4" placeholder="e.g. Talk: 'Scaling edge AI on Hisense displays'. Speaker: Dr. Lee. Key points: on-device inference, privacy, latency…"></textarea>
+        <div class="action-row">
+          <label class="btn sm" style="cursor:pointer">📎 Load file<input type="file" accept=".txt,.md,.text" style="display:none" onchange="loadBriefingFile(this)"></label>
+          <button class="btn sm ghost" onclick="document.getElementById('briefing').value='';setBriefMeta()">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COLUMN 3 — Avatar Stage -->
+  <div class="stage-col col-3">
+    <div class="panel">
+      <div class="panel-head"><h2>Avatar Stage</h2><button class="btn sm ghost" onclick="toggleFullscreen()" title="Fullscreen stage">⛶</button></div>
+      <div class="panel-body">
+
+        <div class="stage-screen" id="stageScreen">
+          <video id="avatarVideo" autoplay playsinline></video>
+          <div class="stage-ph" id="stagePh">
+            <div class="big">🟢</div><div class="lbl">Avatar offline</div>
+          </div>
+          <div id="subtitle"></div>
+        </div>
+        <audio id="avatarAudio" autoplay playsinline style="display:none"></audio>
+
+        <div class="stage-bar">
+          <div class="stage-state"><span class="dot" id="avDot2"></span><span id="avState2">Disconnected</span></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm primary" id="btnAvatar" onclick="startAvatar()">▶ Start Avatar</button>
+            <button class="btn sm danger ghost" onclick="stopAvatar()">Stop</button>
+          </div>
+        </div>
+
+        <!-- Persona -->
+        <div class="label">Moderator Persona</div>
+        <div class="persona-grid" id="personaGrid"></div>
+
+        <!-- Advanced avatar/voice controls -->
+        <details class="adv">
+          <summary>Avatar & voice settings</summary>
+          <div class="field-grid" style="margin-top:10px">
+            <div><div class="label" style="margin-top:0">Character</div><select id="avChar" onchange="syncStyles()"></select></div>
+            <div><div class="label" style="margin-top:0">Style</div><select id="avStyle"></select></div>
+          </div>
+          <div class="label">Voice</div>
+          <select id="voice"></select>
+          <div class="field-grid">
+            <div><div class="label">Voice style</div><select id="voiceStyle"></select></div>
+            <div><div class="label">Style degree</div>
+              <select id="styleDegree"><option value="0.5">0.5 subtle</option><option value="1" selected>1.0 normal</option><option value="1.5">1.5 strong</option><option value="2">2.0 max</option></select>
+            </div>
+          </div>
+          <div class="label">Speech rate</div>
+          <select id="rate"><option value="-15%">Slow</option><option value="0%" selected>Normal</option><option value="15%">Fast</option><option value="30%">Very fast</option></select>
+          <p class="hint" style="margin-top:8px">Changing the character requires Stop → Start Avatar.</p>
+        </details>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SETTINGS MODAL ══════════════════════════════════════ -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <div class="modal-head"><h3>⚙ Settings</h3><button class="icon-btn" onclick="closeSettings()">✕</button></div>
+    <div class="modal-body">
+      <div class="label" style="margin-top:0">Azure Speech key</div>
+      <input id="cfgKey" type="password" placeholder="Ocp-Apim-Subscription-Key (Standard S0 tier)">
+      <div class="hint">Real-time avatar requires a Speech resource on the <b>Standard S0</b> tier. Stored only in this browser (localStorage).</div>
+
+      <div class="field-grid">
+        <div><div class="label">Region</div><input id="cfgRegion" placeholder="westeurope"></div>
+        <div><div class="label">STT language</div><input id="cfgLang" placeholder="en-US"></div>
+      </div>
+
+      <div class="label">Reasoner</div>
+      <div class="seg" id="reasonerSeg">
+        <button class="btn sm on" data-mode="mock" onclick="setReasoner('mock')">Mock (offline)</button>
+        <button class="btn sm" data-mode="llm" onclick="setReasoner('llm')">LLM</button>
+      </div>
+      <div class="hint">Mock runs fully offline (keyword extraction + templates). LLM calls an OpenAI-compatible endpoint.</div>
+
+      <div id="llmFields" style="display:none">
+        <div class="label">LLM endpoint (base URL)</div>
+        <input id="cfgLlmUrl" placeholder="https://api.groq.com/openai/v1">
+        <div class="hint">Groq → <code>https://api.groq.com/openai/v1</code> · OpenAI → <code>https://api.openai.com/v1</code> · OpenRouter → <code>https://openrouter.ai/api/v1</code></div>
+        <div class="field-grid">
+          <div><div class="label">Model</div><input id="cfgLlmModel" placeholder="llama-3.3-70b-versatile"></div>
+          <div><div class="label">Auth header</div>
+            <select id="cfgLlmAuth"><option value="bearer">Bearer (OpenAI/Groq)</option><option value="apikey">api-key (Azure OpenAI)</option></select>
+          </div>
+        </div>
+        <div class="label">LLM API key</div>
+        <input id="cfgLlmKey" type="password" placeholder="sk-… / gsk_…">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeSettings()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   AI Conference Moderator — single-file static app
+   STT + Reasoner + Azure real-time avatar, Hisense theme
+   ════════════════════════════════════════════════════════════ */
+
+/* ── Config / persistence ─────────────────────────────────── */
+const LS_KEY = "hisense_moderator_cfg_v1";
+const cfg = Object.assign({
+  speechKey:"", region:"westeurope", lang:"en-US",
+  reasoner:"mock",
+  llmUrl:"https://api.groq.com/openai/v1", llmModel:"llama-3.3-70b-versatile",
+  llmAuth:"bearer", llmKey:""
+}, JSON.parse(localStorage.getItem(LS_KEY) || "{}"));
+
+function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(cfg)); }
+
+/* ── Avatar / voice option tables (from working tester) ───── */
+const AVATAR_OPTIONS = {
+  lisa:["casual-sitting","graceful-sitting","graceful-standing","technical-sitting","technical-standing"],
+  harry:["","casual","youthful"], lori:["casual","graceful","formal"],
+  max:["business"], meg:["business","formal"],
+  rowan:[""], celine:[""], nia:[""], malik:[""]
+};
+const VOICES = [
+  "en-US-AvaMultilingualNeural","en-US-AndrewMultilingualNeural","en-US-EmmaMultilingualNeural",
+  "en-US-BrianMultilingualNeural","en-US-JennyMultilingualNeural","en-US-RyanMultilingualNeural",
+  "en-US-CoraMultilingualNeural","en-US-ChristopherMultilingualNeural","en-US-SteffanMultilingualNeural"
+];
+const VOICE_STYLES = ["","chat","cheerful","friendly","customerservice","newscast","assistant","calm","empathetic","excited","sad","angry","whispering"];
+
+/* ── Personas ─────────────────────────────────────────────── */
+const PERSONAS = {
+  provocateur:{ name:"RAZOR",  role:"Provocateur", emo:"🔥",
+    voice:"en-US-BrianMultilingualNeural", voiceStyle:"",
+    system:"You are RAZOR, a provocative AI conference co-moderator. You are sharp, fearless and a little confrontational — you challenge assumptions and push speakers with pointed questions. Stay on-topic and concise (max 3 sentences for a spoken response)." },
+  comedian:{ name:"GLITCH", role:"Comedian", emo:"😂",
+    voice:"en-US-AndrewMultilingualNeural", voiceStyle:"cheerful",
+    system:"You are GLITCH, a witty comedic AI conference co-moderator. You keep the room light with clever, good-natured humour while staying relevant to the talk. Concise (max 3 sentences for a spoken response)." },
+  smartass:{ name:"CORTEX", role:"Know-It-All", emo:"🧠",
+    voice:"en-US-SteffanMultilingualNeural", voiceStyle:"assistant",
+    system:"You are CORTEX, an erudite know-it-all AI conference co-moderator. You add precise, insightful depth with a faint air of superiority, but you are genuinely informative. Concise (max 3 sentences for a spoken response)." }
+};
+let activePersona = "provocateur";
+
+/* ── State ────────────────────────────────────────────────── */
+let recognizer=null, listening=false;
+let avatarSynth=null, peer=null, remoteStream=null, audioCtx=null, avatarReady=false;
+let utterances=[], partialEl=null, logCount=0;
+let usageStart=null, usageTimer=null, usageSecs=0;
+
+/* ── DOM ──────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const transcriptEl=$("transcript"), aiOutput=$("aiOutput"), aiBadge=$("aiBadge"), logEl=$("log");
+
+/* ════════════════ INIT ════════════════ */
+function boot(){
+  // persona cards
+  const pg=$("personaGrid");
+  Object.entries(PERSONAS).forEach(([k,p])=>{
+    const d=document.createElement("div");
+    d.className="persona"+(k===activePersona?" active":"");
+    d.id="persona-"+k;
+    d.innerHTML=`<div class="emo">${p.emo}</div><div class="nm">${p.name}</div><div class="role">${p.role}</div>`;
+    d.onclick=()=>setPersona(k);
+    pg.appendChild(d);
+  });
+  // avatar dropdowns
+  const c=$("avChar"); Object.keys(AVATAR_OPTIONS).forEach(ch=>c.add(new Option(ch,ch))); c.value="lisa";
+  const v=$("voice"); VOICES.forEach(x=>v.add(new Option(x.replace("en-US-","").replace("Neural",""),x)));
+  const vs=$("voiceStyle"); VOICE_STYLES.forEach(x=>vs.add(new Option(x||"default",x)));
+  syncStyles();
+  setPersona(activePersona);
+  if(!cfg.speechKey){ log("system","No Azure Speech key set — open ⚙ Settings to add one."); }
+}
+
+function syncStyles(){
+  const ch=$("avChar").value, sel=$("avStyle"); sel.innerHTML="";
+  (AVATAR_OPTIONS[ch]||[""]).forEach(s=>sel.add(new Option(s||"N/A",s)));
+}
+
+function setPersona(k){
+  activePersona=k;
+  document.querySelectorAll(".persona").forEach(e=>e.classList.remove("active"));
+  $("persona-"+k).classList.add("active");
+  const p=PERSONAS[k];
+  $("voice").value=p.voice;
+  $("voiceStyle").value=p.voiceStyle;
+  log("system",`Persona → ${p.name} (${p.role})`);
+}
+
+/* ════════════════ SETTINGS ════════════════ */
+function openSettings(){
+  $("cfgKey").value=cfg.speechKey; $("cfgRegion").value=cfg.region; $("cfgLang").value=cfg.lang;
+  $("cfgLlmUrl").value=cfg.llmUrl; $("cfgLlmModel").value=cfg.llmModel; $("cfgLlmKey").value=cfg.llmKey;
+  $("cfgLlmAuth").value=cfg.llmAuth;
+  setReasoner(cfg.reasoner);
+  $("settingsModal").classList.add("open");
+}
+function closeSettings(){ $("settingsModal").classList.remove("open"); }
+function setReasoner(mode){
+  cfg.reasoner=mode;
+  document.querySelectorAll("#reasonerSeg .btn").forEach(b=>b.classList.toggle("on",b.dataset.mode===mode));
+  $("llmFields").style.display = mode==="llm" ? "block" : "none";
+}
+function saveSettings(){
+  cfg.speechKey=$("cfgKey").value.trim(); cfg.region=$("cfgRegion").value.trim()||"westeurope";
+  cfg.lang=$("cfgLang").value.trim()||"en-US";
+  cfg.llmUrl=$("cfgLlmUrl").value.trim().replace(/\/+$/,""); cfg.llmModel=$("cfgLlmModel").value.trim();
+  cfg.llmKey=$("cfgLlmKey").value.trim(); cfg.llmAuth=$("cfgLlmAuth").value;
+  persist(); closeSettings();
+  log("system",`Settings saved · reasoner=${cfg.reasoner} · region=${cfg.region}`);
+}
+
+/* ════════════════ SPEECH-TO-TEXT ════════════════ */
+function requireKey(){
+  if(!cfg.speechKey){ log("error","Set your Azure Speech key in ⚙ Settings first."); openSettings(); return false; }
+  if(!window.SpeechSDK){ log("error","Azure Speech SDK failed to load (check network)."); return false; }
+  return true;
+}
+
+function toggleListening(){ listening ? stopListening() : startListening(); }
+
+function startListening(){
+  if(!requireKey()) return;
+  try{
+    const sc=SpeechSDK.SpeechConfig.fromSubscription(cfg.speechKey,cfg.region);
+    sc.speechRecognitionLanguage=cfg.lang;
+    const audioCfg=SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+    recognizer=new SpeechSDK.SpeechRecognizer(sc,audioCfg);
+
+    recognizer.recognizing=(s,e)=>{ if(e.result.text) showPartial(e.result.text); };
+    recognizer.recognized=(s,e)=>{
+      if(e.result.reason===SpeechSDK.ResultReason.RecognizedSpeech && e.result.text.trim()) addUtterance(e.result.text.trim());
+    };
+    recognizer.canceled=(s,e)=>{ log("error","STT canceled: "+(e.errorDetails||e.reason)); stopListening(); };
+    recognizer.sessionStopped=()=>log("system","STT session stopped.");
+
+    recognizer.startContinuousRecognitionAsync(()=>{
+      listening=true;
+      $("btnListen").innerHTML="⏹ Stop Listening"; $("btnListen").classList.remove("primary"); $("btnListen").classList.add("danger");
+      setMic("live","Listening…"); startUsage(); log("system","Listening started.");
+    },err=>{ log("error","Could not start STT: "+err); });
+  }catch(err){ log("error","STT init error: "+(err.message||err)); }
+}
+
+function stopListening(){
+  if(recognizer){
+    recognizer.stopContinuousRecognitionAsync(()=>{ recognizer.close(); recognizer=null; },()=>{});
+  }
+  listening=false; stopUsage();
+  $("btnListen").innerHTML="▶ Start Listening"; $("btnListen").classList.add("primary"); $("btnListen").classList.remove("danger");
+  setMic("ok","Stopped");
+}
+
+function showPartial(text){
+  if(!partialEl){ partialEl=document.createElement("div"); partialEl.className="utt partial"; transcriptEl.appendChild(partialEl); $("transcriptEmpty")?.remove(); }
+  partialEl.textContent="… "+text;
+  transcriptEl.scrollTop=transcriptEl.scrollHeight;
+}
+function addUtterance(text){
+  if(partialEl){ partialEl.remove(); partialEl=null; }
+  $("transcriptEmpty")?.remove();
+  utterances.push(text);
+  const d=document.createElement("div"); d.className="utt"; d.textContent=text;
+  transcriptEl.appendChild(d); transcriptEl.scrollTop=transcriptEl.scrollHeight;
+  $("uttCount").textContent=`${utterances.length} utterance${utterances.length!==1?"s":""}`;
+}
+
+/* speech usage meter */
+function startUsage(){ usageStart=Date.now(); $("usagePill").style.display="inline-flex"; usageTimer=setInterval(()=>{ $("usage").textContent=fmt(usageSecs+(Date.now()-usageStart)/1000); },1000); }
+function stopUsage(){ if(usageStart){ usageSecs+=(Date.now()-usageStart)/1000; usageStart=null; } clearInterval(usageTimer); $("usage").textContent=fmt(usageSecs); }
+function fmt(s){ s=Math.round(s); const m=Math.floor(s/60); return m?`${m}m ${s%60}s`:`${s}s`; }
+
+/* ════════════════ REASONER ════════════════ */
+function recentText(n=24){ return utterances.slice(-n).join(" "); }
+function briefingText(){ return $("briefing").value.trim(); }
+
+async function doAction(action){
+  const text=recentText();
+  if(!text && !briefingText()){ log("error","No transcript yet — start listening or add a briefing."); return; }
+  aiOutput.className="empty"; aiOutput.textContent="Generating…"; aiBadge.innerHTML="";
+  try{
+    let out, source;
+    if(cfg.reasoner==="llm" && cfg.llmKey){ out=await llmReason(action,text); source="llm"; }
+    else { out=mockReason(action,text); source="mock"; }
+    aiOutput.className=""; aiOutput.textContent=out;
+    aiBadge.innerHTML=`<span class="badge ${source}">${source}</span>`;
+    log("ai",`${action}: ${out.slice(0,70)}…`);
+    if(action==="response" && $("autoSpeak").checked) speakCurrent();
+  }catch(err){
+    aiOutput.className=""; aiOutput.textContent="Error: "+(err.message||err);
+    aiBadge.innerHTML=`<span class="badge mock">error</span>`;
+    log("error","Reasoner failed: "+(err.message||err));
+  }
+}
+
+/* — Mock reasoner: keyword extraction + extractive summary + templates — */
+const STOP=new Set("the a an and or but of to in on for with at by from is are was were be been being this that these those it its as we you they i he she them our your their not no so if then than into about over under up down out".split(" "));
+function keywords(text,n=6){
+  const freq={};
+  (text.toLowerCase().match(/[a-z][a-z'-]{2,}/g)||[]).forEach(w=>{ if(!STOP.has(w)) freq[w]=(freq[w]||0)+1; });
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,n).map(e=>e[0]);
+}
+function sentences(text){ return (text.match(/[^.!?]+[.!?]+/g)||[text]).map(s=>s.trim()).filter(Boolean); }
+function mockReason(action,text){
+  const ctx=(briefingText()?briefingText()+" ":"")+text;
+  const kws=keywords(ctx);
+  const p=PERSONAS[activePersona];
+  if(action==="summarize"){
+    const ss=sentences(text);
+    const scored=ss.map(s=>({s,score:kws.reduce((a,k)=>a+(s.toLowerCase().includes(k)?1:0),0)}))
+                   .sort((a,b)=>b.score-a.score).slice(0,3).map(o=>o.s);
+    const top=ss.length?scored.join(" "):"(not enough speech captured yet)";
+    return `Key themes: ${kws.join(", ")}.\n\nSummary: ${top}`;
+  }
+  if(action==="questions"){
+    const k=kws.length?kws:["this topic"];
+    return [
+      `1. You touched on ${k[0]} — what's the strongest objection to that, and how do you answer it?`,
+      `2. How does ${k[1]||k[0]} hold up at scale or under real-world constraints?`,
+      `3. If you had to bet, where does ${k[2]||k[0]} go in the next two years?`
+    ].join("\n");
+  }
+  // response — persona flavoured
+  const topic=kws[0]||"that";
+  const lines={
+    provocateur:`Let's not let that slide — you say ${topic} matters, but where's the evidence it actually changes outcomes? Convince the skeptics in this room.`,
+    comedian:`So basically ${topic} is the new ${kws[1]||"buzzword"} — I love it. Quick question though: does it survive contact with an actual customer, or just a slide deck?`,
+    smartass:`A useful framing of ${topic}, though it's worth noting the trade-off with ${kws[1]||"latency"} that's doing a lot of quiet work here. Care to make that explicit?`
+  };
+  return lines[activePersona] || lines.provocateur;
+}
+
+/* — LLM reasoner: OpenAI-compatible chat completions — */
+async function llmReason(action,text){
+  const p=PERSONAS[activePersona];
+  const tasks={
+    summarize:"Summarize the key points of this conference-talk segment in 2-3 tight sentences for the moderator.",
+    questions:"Suggest exactly three insightful follow-up questions the moderator could ask the speaker. Number them.",
+    response:"Give a short spoken moderator response (max 3 sentences) reacting to the talk, fully in character."
+  };
+  const brief=briefingText()?`\n\nSpeaker briefing/context:\n${briefingText()}`:"";
+  const messages=[
+    {role:"system",content:p.system},
+    {role:"user",content:`${tasks[action]}\n\nRecent transcript:\n"""${text||"(no transcript captured yet)"}"""${brief}`}
+  ];
+  const url=cfg.llmUrl.replace(/\/+$/,"")+"/chat/completions";
+  const headers={"Content-Type":"application/json"};
+  if(cfg.llmAuth==="apikey") headers["api-key"]=cfg.llmKey; else headers["Authorization"]="Bearer "+cfg.llmKey;
+  const resp=await fetch(url,{method:"POST",headers,body:JSON.stringify({model:cfg.llmModel,messages,temperature:0.8,max_tokens:400})});
+  if(!resp.ok){ throw new Error("LLM HTTP "+resp.status+" — "+(await resp.text()).slice(0,160)); }
+  const data=await resp.json();
+  return (data.choices?.[0]?.message?.content||"(empty LLM response)").trim();
+}
+
+/* ════════════════ AVATAR (proven WebRTC path) ════════════════ */
+async function unlockAudio(){
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==="suspended") await audioCtx.resume();
+  }catch(e){}
+}
+async function getRelayToken(){
+  const url=`https://${cfg.region}.tts.speech.microsoft.com/cognitiveservices/avatar/relay/token/v1`;
+  const r=await fetch(url,{headers:{"Ocp-Apim-Subscription-Key":cfg.speechKey}});
+  const t=await r.text();
+  if(!r.ok) throw new Error("Relay token HTTP "+r.status+" — "+t.slice(0,160));
+  return JSON.parse(t);
+}
+
+async function startAvatar(){
+  if(!requireKey()) return;
+  try{
+    setAv("…","Requesting relay token…");
+    await unlockAudio();
+    const relay=await getRelayToken();
+
+    const character=$("avChar").value, style=$("avStyle").value, voice=$("voice").value;
+    const sc=SpeechSDK.SpeechConfig.fromSubscription(cfg.speechKey,cfg.region);
+    sc.speechSynthesisVoiceName=voice;
+    const avCfg = style ? new SpeechSDK.AvatarConfig(character,style) : new SpeechSDK.AvatarConfig(character);
+    avatarSynth=new SpeechSDK.AvatarSynthesizer(sc,avCfg);
+    remoteStream=new MediaStream();
+
+    setAv("…","Creating WebRTC connection…");
+    peer=new RTCPeerConnection({ iceServers:[{urls:relay.Urls,username:relay.Username,credential:relay.Password}] });
+    peer.oniceconnectionstatechange=()=>log("system","ICE: "+peer.iceConnectionState);
+
+    peer.ontrack=ev=>{
+      remoteStream.addTrack(ev.track);
+      const v=$("avatarVideo"), a=$("avatarAudio");
+      v.srcObject=remoteStream; a.srcObject=remoteStream;
+      v.muted=false; v.volume=1; a.muted=false; a.volume=1;
+      $("stagePh").style.display="none";
+      v.play().catch(()=>{}); a.play().catch(()=>{});
+    };
+    // recvonly transceivers BEFORE start — the step the old backend build was missing
+    peer.addTransceiver("video",{direction:"recvonly"});
+    peer.addTransceiver("audio",{direction:"recvonly"});
+
+    setAv("…","Starting avatar session…");
+    await avatarSynth.startAvatarAsync(peer);
+    avatarReady=true;
+    setAv("ok","Avatar ready");
+    log("system",`Avatar started · ${character}/${style||"default"} · ${voice}`);
+  }catch(err){
+    avatarReady=false; setAv("err","Avatar failed");
+    const m=(err.message||err)+"";
+    if(/S0|only available/i.test(m)) log("error","Avatar needs a Standard S0 Speech resource. "+m);
+    else log("error","Avatar error: "+m);
+  }
+}
+
+function speakCurrent(){
+  const text=(aiOutput.classList.contains("empty")?"":aiOutput.textContent).trim();
+  if(!text){ log("error","Nothing to speak — generate a response first."); return; }
+  if(!avatarSynth||!avatarReady){ log("error","Start the avatar first (▶ Start Avatar)."); return; }
+  unlockAudio();
+  showSubtitle(text);
+  const ssml=buildSsml(text);
+  setStageSpeaking(true);
+  log("system","Sending text to avatar…");
+  avatarSynth.speakSsmlAsync(ssml,
+    res=>{
+      setStageSpeaking(false);
+      if(res.reason===SpeechSDK.ResultReason.SynthesizingAudioCompleted) log("system","Avatar finished speaking.");
+      else { log("error","Speech ended: "+res.reason+(res.errorDetails?(" — "+res.errorDetails):"")); }
+      setTimeout(hideSubtitle,800);
+    },
+    err=>{ setStageSpeaking(false); log("error","Speak error: "+err+" (try Voice style → default)"); hideSubtitle(); }
+  );
+}
+
+function buildSsml(text){
+  const voice=$("voice").value, vstyle=$("voiceStyle").value, degree=$("styleDegree").value, rate=$("rate").value;
+  const esc=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+  let inner=`<prosody rate="${rate}">${esc}</prosody>`;
+  if(vstyle) inner=`<mstts:express-as style="${vstyle}" styledegree="${degree}">${inner}</mstts:express-as>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US"><voice name="${voice}">${inner}</voice></speak>`;
+}
+
+function stopAvatar(){
+  try{ avatarSynth?.close(); }catch(e){}
+  try{ peer?.close(); }catch(e){}
+  avatarSynth=null; peer=null; remoteStream=null; avatarReady=false;
+  $("avatarVideo").srcObject=null; $("stagePh").style.display="grid";
+  hideSubtitle(); setStageSpeaking(false); setAv("","Disconnected");
+  log("system","Avatar stopped.");
+}
+
+function showSubtitle(t){ const s=$("subtitle"); s.textContent=t; s.style.display="block"; }
+function hideSubtitle(){ $("subtitle").style.display="none"; }
+function setStageSpeaking(on){ $("stageScreen").classList.toggle("speaking",on); }
+function toggleFullscreen(){ const el=$("stageScreen"); if(!document.fullscreenElement) el.requestFullscreen?.(); else document.exitFullscreen?.(); }
+
+/* ════════════════ MISC UI ════════════════ */
+function setMic(state,txt){ $("micDot").className="dot "+(state==="live"?"live":state==="ok"?"ok":state==="err"?"err":""); $("micState").textContent=txt; }
+function setAv(state,txt){
+  const cls="dot "+(state==="ok"?"ok":state==="err"?"err":state==="…"?"live":"");
+  $("avDot").className=cls; $("avDot2").className=cls;
+  $("avState").textContent=txt; $("avState2").textContent=txt;
+}
+function log(kind,msg){
+  const first=logEl.querySelector(".empty"); if(first) first.remove();
+  logCount++;
+  const row=document.createElement("div"); row.className="logrow";
+  const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  const tag=kind==="error"?"error":kind==="ai"?"ai":"system";
+  row.innerHTML=`<span class="t">${t}</span><span class="logtag ${tag}">${kind}</span><span class="msg"></span>`;
+  row.querySelector(".msg").textContent=msg;
+  logEl.prepend(row);
+  $("logCount").textContent=`${logCount} entries`;
+}
+function clearSession(){
+  utterances=[]; partialEl=null;
+  transcriptEl.innerHTML='<div class="empty" id="transcriptEmpty">Waiting for speech… press Start Listening.</div>';
+  $("uttCount").textContent="0 utterances";
+  aiOutput.className="empty"; aiOutput.textContent="Generate a summary, questions, or a moderator response — then send it to the avatar."; aiBadge.innerHTML="";
+  logEl.innerHTML='<div class="empty">Activity will appear here.</div>'; logCount=0; $("logCount").textContent="0 entries";
+  log("system","Session cleared — ready for a new talk.");
+}
+function setBriefMeta(){ const n=$("briefing").value.trim().length; $("briefMeta").textContent=n?`${n} chars`:"none"; }
+$("briefing").addEventListener("input",setBriefMeta);
+function loadBriefingFile(input){
+  const f=input.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ $("briefing").value=r.result; setBriefMeta(); log("system",`Briefing loaded: ${f.name}`); };
+  r.readAsText(f);
+}
+
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeSettings(); });
+boot();
+</script>
+</body>
+</html>
