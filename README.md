@@ -28,6 +28,8 @@ A real-time AI moderator assistant for technology conferences. A human operator 
 
 > **Microphone note:** browsers only grant mic access in a *secure context*. Serve the file over `localhost` (e.g. `python -m http.server`) or `https` — opening via `file://` may block the microphone (the avatar/TTS still works either way).
 
+> **Self-contained / shareable:** the Azure Speech SDK and JSZip are **inlined** into `index.html` (base64), so it loads with **no CDN** — it works on a first-time, empty-cache open even behind a corporate firewall, with browser tracking-prevention on, or with an ad-blocker. Just send the single file. *Runtime* features (avatar, speech-to-text) still call Azure's servers, so the machine needs internet access to Azure when those are used.
+
 The original FastAPI backend below remains intact and unchanged.
 
 ---
